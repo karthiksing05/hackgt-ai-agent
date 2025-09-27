@@ -8,10 +8,8 @@ import tempfile
 import shutil
 import base64
 from typing import List, Tuple, Union
-from collections import defaultdict
 import requests
 from PIL import Image, UnidentifiedImageError
-import imagehash
 from openai import OpenAI
 import dateparser
 
@@ -107,7 +105,7 @@ def cluster_images(images: List[bytes], debug: bool = False) -> List[bytes]:
     cluster_prompt = (
         "Given the following image descriptions, group them into clusters where images "
         "seem related or show similar content. Return a JSON list of clusters, each containing "
-        "the indices of images in that cluster.\n"
+        "the indices of images in that cluster. Example: [{\"cluster\": [0, 1, 2]}, {\"cluster\": [3, 4]}, ...]\n"
         f"Descriptions:\n{json.dumps(descriptions)}"
     )
 
@@ -317,9 +315,9 @@ def post_event(event: Event, event_id: Union[str, int], debug: bool = False) -> 
         "title": event.title,
         "summary": event.summary,
         "type": event.type,
-        "datetime": event.datetime.isoformat(),
-        "actions": [{"title": a.event, "start": a.datetime_start.isoformat(),
-                     "end": a.datetime_end.isoformat()} for a in event.actions]
+        "datetime": int(event.datetime.timestamp()),
+        "actions": [{"title": a.event, "start": int(a.datetime_start.timestamp()),
+                     "end": int(a.datetime_end.timestamp())} for a in event.actions]
     }
     if debug:
         print("Posting Event JSON:", json.dumps(payload, indent=2))
