@@ -1,6 +1,6 @@
 # hackgt-ai-agent
 
-Small CLI tool that extracts calendar-event information from a packaged packet (images + a WAV audio file) using OpenAI models. The script processes images and audio in a .tar.gz packet, asks GPT-style models to extract event titles, start/end times and concise summaries, deduplicates results, synthesizes a final title/summary, and posts the resulting event to a configured HTTP endpoint.
+Small CLI tool that extracts calendar-event information and general summary information from a packaged packet (images + a WAV audio file) using OpenAI models. The script processes images and audio in a .tar.gz packet, asks GPT-style models to extract event titles, start/end times and concise summaries, deduplicates results, synthesizes a final title/summary, and posts the resulting event to a configured HTTP endpoint.
 
 ## Features
 
