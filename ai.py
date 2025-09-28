@@ -207,7 +207,7 @@ def process_audio(audio_bytes: bytes, debug: bool = False) -> Tuple[List[Calenda
     ).text
 
     prompt_text = (
-        "You are a planning assistant. Extract **all information needed to create calendar reminders** from this transcript: "
+        f"You are a planning assistant. Today is {datetime.datetime.now().strftime("%A, %B %-d, %Y")}. Extract **any information needed to create calendar reminders** from this transcript: "
         "event title, start and end times."
         "Include at most one actionable event per transcript. If no event is found, return an empty 'events' list. "
         "Also provide 1-3 concise summary bullets of the important points discussed - any descriptions of data, images, or relevant content in the foreground of the picture. Don't feel any need to describe the scenery or setting or generate useless content, if there isn't anything valuable to describe, return an empty list under the summary section\n\n"
@@ -297,10 +297,13 @@ def process_event(images: List[bytes], audio: bytes, debug: bool = False) -> Eve
     # Deduplicate summary bullets
     unique_summary = list({s.strip(): None for s in all_summaries}.keys())
 
+    if len(unique_summary) == 0:
+        unique_summary = ["No events here"]
+
     # Use ChatGPT to synthesize into 4-5 key bullets
     summary_prompt = (
         "You are an assistant that condenses a list of event summary bullets into 4-5 "
-        "concise, clear, and important bullet points. Make sure to save as many distinct details as possible - all the meaning from the original bullets should be properly encapsulated in the final summary. Original bullets:\n"
+        "concise, clear, and important bullet points. If there are no events, just have an empty summary. Make sure to save as many distinct details as possible - all the meaning from the original bullets should be properly encapsulated in the final summary. Original bullets:\n"
         + "\n".join(unique_summary)
     )
     summary_resp = client.chat.completions.create(
@@ -314,8 +317,8 @@ def process_event(images: List[bytes], audio: bytes, debug: bool = False) -> Eve
 
     # Generate title from both actions and the synthesized summary
     title_prompt = (
-        "Generate a concise, engaging event title based on both the following actions "
-        "and summary bullets. The title should capture the essence of the event, be short and clear. Print only the event title and nothing else.\n\n"
+        "Generate a concise event title based on both the scraped actions "
+        "and summary bullets designed to communicate all the information succinctly. The title should capture and summarize only relevant information, no need to prettify anything up. Print only the event title and nothing else.\n\n"
         "Actions:\n" + "\n".join([str(action) for action in all_actions]) + "\n\n"
         "Summary Bullets:\n" + "\n".join(synthesized_summary)
     )
