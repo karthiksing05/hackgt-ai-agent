@@ -13,6 +13,9 @@ from PIL import Image, UnidentifiedImageError
 from openai import OpenAI
 import dateparser
 
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
 # --- Load API Key ---
 with open("API_KEY.txt", "r") as f:
     API_KEY = f.read().strip()
@@ -312,14 +315,14 @@ def process_event(images: List[bytes], audio: bytes, debug: bool = False) -> Eve
     # Generate title from both actions and the synthesized summary
     title_prompt = (
         "Generate a concise, engaging event title based on both the following actions "
-        "and summary bullets. The title should capture the essence of the event, be short and clear.\n\n"
+        "and summary bullets. The title should capture the essence of the event, be short and clear. Print only the event title and nothing else.\n\n"
         "Actions:\n" + "\n".join([str(action) for action in all_actions]) + "\n\n"
         "Summary Bullets:\n" + "\n".join(synthesized_summary)
     )
     title_resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": title_prompt}],
-        temperature=0.4
+        temperature=0.2
     )
     title = title_resp.choices[0].message.content.strip()
 
