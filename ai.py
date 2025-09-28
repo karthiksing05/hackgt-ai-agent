@@ -155,7 +155,7 @@ def process_image(image_bytes: bytes, debug: bool = False) -> Tuple[List[Calenda
         "Strictly return valid JSON. Extract **all information necessary for a calendar reminder**: "
         "event title, start and end times, location (if mentioned), participants (if mentioned). "
         "Include at most one actionable event per image. If no event, return an empty 'events' list. "
-        "Also provide 1-3 concise summary bullets of the important points.\n\n"
+        "Also provide 1-3 concise summary bullets of the important points discussed - any descriptions of data, images, or relevant content in the foreground of the picture. Don't feel any need to describe the scenery or setting or generate useless content, if there isn't anything valuable to describe, return an empty list under the summary section.\n\n"
         "Return JSON like this:\n"
         "{'events':[{'title':..., 'start':..., 'end':...}, ...], 'summary':[...]}."
     )
@@ -204,10 +204,10 @@ def process_audio(audio_bytes: bytes, debug: bool = False) -> Tuple[List[Calenda
         "You are a planning assistant. Extract **all information needed to create calendar reminders** from this transcript: "
         "event title, start and end times, location (if mentioned), participants (if mentioned). "
         "Include at most one actionable event per transcript. If no event is found, return an empty 'events' list. "
-        "Also provide 1-3 concise summary bullets of key points.\n\n"
+        "Also provide 1-3 concise summary bullets of the important points discussed - any descriptions of data, images, or relevant content in the foreground of the picture. Don't feel any need to describe the scenery or setting or generate useless content, if there isn't anything valuable to describe, return an empty list under the summary section\n\n"
         "Transcript:\n" + transcript + "\n\n"
         "Return strictly valid JSON like this:\n"
-        "{'events':[{'title':..., 'start':..., 'end':..., 'location':..., 'participants':...}], 'summary':[...]}."
+        "{'events':[{'title':..., 'start':..., 'end':...], 'summary':[...]}."
     )
 
     response = client.chat.completions.create(
@@ -234,9 +234,7 @@ def process_audio(audio_bytes: bytes, debug: bool = False) -> Tuple[List[Calenda
         events.append(CalendarAction(
             event=e.get("title", "Untitled Event"),
             start=start,
-            end=end,
-            location=e.get("location"),
-            participants=e.get("participants")
+            end=end
         ))
 
     return events, parsed.get("summary", [])
