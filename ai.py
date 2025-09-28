@@ -104,15 +104,15 @@ def cluster_images(images: List[bytes], debug: bool = False) -> List[bytes]:
     # Now cluster descriptions using GPT
     cluster_prompt = (
         "Given the following image descriptions, group them into clusters where images "
-        "seem related or show similar content. Return a JSON list of clusters, each containing "
-        "the indices of images in that cluster. Example: [{\"cluster\": [0, 1, 2]}, {\"cluster\": [3, 4]}, ...]\n"
+        "seem related or show very similar content (they should be almost precisely exact in similarity of content). It is ok to not create a cluster if you have a small amount of image descriptions and they're all different - just make each one their own cluster. Return a JSON list of clusters, each containing "
+        "the indices of images in that cluster. Do not output anything else apart from the JSON. Example: [{\"cluster\": [0, 1, 2]}, {\"cluster\": [3, 4]}, ...]\n"
         f"Descriptions:\n{json.dumps(descriptions)}"
     )
 
     cluster_resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": cluster_prompt}],
-        temperature=0.0
+        temperature=0.01
     )
 
     raw_clusters = cluster_resp.choices[0].message.content.strip()
@@ -152,9 +152,12 @@ def cluster_images(images: List[bytes], debug: bool = False) -> List[bytes]:
 def process_image(image_bytes: bytes, debug: bool = False) -> Tuple[List[CalendarAction], List[str]]:
     base64_image = base64.b64encode(image_bytes).decode("utf-8")
     prompt_text = (
-        "Strictly return valid JSON. Extract at most one actionable event (title, start, end). "
-        "If no event, return an empty 'events' list and 1-3 key summary bullets in 'summary'. "
-        "Return: {'events':[{'title':..., 'start':..., 'end':...}], 'summary':[...]}.\n"
+        "Strictly return valid JSON. Extract **all information necessary for a calendar reminder**: "
+        "event title, start and end times, location (if mentioned), participants (if mentioned). "
+        "Include at most one actionable event per image. If no event, return an empty 'events' list. "
+        "Also provide 1-3 concise summary bullets of the important points.\n\n"
+        "Return JSON like this:\n"
+        "{'events':[{'title':..., 'start':..., 'end':...}, ...], 'summary':[...]}."
     )
 
     response = client.responses.create(
@@ -182,7 +185,11 @@ def process_image(image_bytes: bytes, debug: bool = False) -> Tuple[List[Calenda
     for e in parsed.get("events", []):
         start = parse_datetime_with_current_year(e.get("start"))
         end = parse_datetime_with_current_year(e.get("end")) if e.get("end") else start + datetime.timedelta(hours=1)
-        events.append(CalendarAction(event=e.get("title", "Untitled Event"), start=start, end=end))
+        events.append(CalendarAction(
+            event=e.get("title", "Untitled Event"),
+            start=start,
+            end=end
+        ))
 
     return events, parsed.get("summary", [])
 
@@ -194,15 +201,20 @@ def process_audio(audio_bytes: bytes, debug: bool = False) -> Tuple[List[Calenda
     ).text
 
     prompt_text = (
-        "Strictly return valid JSON with 'events' (at most one per cluster) and 1-3 summary bullets. "
-        "If no event, return empty 'events'.\nTranscript:\n" + transcript
+        "You are a planning assistant. Extract **all information needed to create calendar reminders** from this transcript: "
+        "event title, start and end times, location (if mentioned), participants (if mentioned). "
+        "Include at most one actionable event per transcript. If no event is found, return an empty 'events' list. "
+        "Also provide 1-3 concise summary bullets of key points.\n\n"
+        "Transcript:\n" + transcript + "\n\n"
+        "Return strictly valid JSON like this:\n"
+        "{'events':[{'title':..., 'start':..., 'end':..., 'location':..., 'participants':...}], 'summary':[...]}."
     )
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "system", "content": "You are a planner assistant."},
                   {"role": "user", "content": prompt_text}],
-        temperature=0.2
+        temperature=0.0
     )
 
     raw_output = response.choices[0].message.content.strip()
@@ -219,7 +231,13 @@ def process_audio(audio_bytes: bytes, debug: bool = False) -> Tuple[List[Calenda
     for e in parsed.get("events", []):
         start = parse_datetime_with_current_year(e.get("start"))
         end = parse_datetime_with_current_year(e.get("end")) if e.get("end") else start + datetime.timedelta(hours=1)
-        events.append(CalendarAction(event=e.get("title", "Untitled Event"), start=start, end=end))
+        events.append(CalendarAction(
+            event=e.get("title", "Untitled Event"),
+            start=start,
+            end=end,
+            location=e.get("location"),
+            participants=e.get("participants")
+        ))
 
     return events, parsed.get("summary", [])
 
@@ -228,12 +246,12 @@ def deduplicate_events(events: List[CalendarAction], debug: bool = False) -> Lis
     events_json = [{"title": e.event, "start": e.datetime_start.isoformat(), "end": e.datetime_end.isoformat()} for e in events]
     prompt = (
         "Deduplicate events by title similarity (ignore times). "
-        "Return JSON list of distinct events.\n" + json.dumps(events_json)
+        "Return only the JSON list of distinct events. Do not return any other dialogue except for the JSON. \n" + json.dumps(events_json)
     )
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.1
+        temperature=0.0
     )
 
     raw = response.choices[0].message.content.strip()
@@ -271,9 +289,27 @@ def process_event(images: List[bytes], audio: bytes, debug: bool = False) -> Eve
     all_summaries.extend(audio_summary)
 
     all_actions = deduplicate_events(all_actions, debug=debug)
-    unique_summary = list({s.strip(): None for s in all_summaries}.keys())[:4]
+    
+    # Deduplicate summary bullets
+    unique_summary = list({s.strip(): None for s in all_summaries}.keys())
 
-    title_prompt = "Generate a concise event title from the following summary bullets:\n" + "\n".join(unique_summary)
+    # Use ChatGPT to synthesize into 4-5 key bullets
+    summary_prompt = (
+        "You are an assistant that condenses a list of event summary bullets into 4-5 "
+        "concise, clear, and important bullet points. Make sure to save as many distinct details as possible - all the meaning from the original bullets should be properly encapsulated in the final summary. Original bullets:\n"
+        + "\n".join(unique_summary)
+    )
+    summary_resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": summary_prompt}],
+        temperature=0.4
+    )
+    synthesized_summary = summary_resp.choices[0].message.content.strip().split("\n")
+    # Keep only non-empty bullets and limit to 5
+    synthesized_summary = [s.strip("-• ").strip() for s in synthesized_summary if s.strip()][:5]
+
+    # Generate title from the synthesized summary
+    title_prompt = "Generate a concise event title from the following summary bullets:\n" + "\n".join(synthesized_summary)
     title_resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": title_prompt}],
@@ -281,7 +317,7 @@ def process_event(images: List[bytes], audio: bytes, debug: bool = False) -> Eve
     )
     title = title_resp.choices[0].message.content.strip()
 
-    return Event(title=title, summary=unique_summary, actions=all_actions, moment=(len(images) <= 15))
+    return Event(title=title, summary=synthesized_summary, actions=all_actions, moment=(len(images) <= 15))
 
 # --- Tar.gz Processing ---
 def process_packet_tar_gz(tar_path: str, debug: bool = False) -> Event:
