@@ -388,6 +388,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     final_event = process_packet_tar_gz(args.tarfile, debug=args.debug, delete_at_end=args.delete)
-    print("\n✅ Final Event:\n", final_event)
+    # print("\n✅ Final Event:\n", final_event)
 
     post_event(final_event, args.id, debug=args.debug)
