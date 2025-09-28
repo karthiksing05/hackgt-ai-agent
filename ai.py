@@ -60,6 +60,9 @@ class CalendarAction:
 
     def __repr__(self):
         return f"<CalendarAction {self.event} ({self.datetime_start} - {self.datetime_end})>"
+    
+    def __str__(self):
+        return f"Calendar event for {self.event}"
 
 class Event:
     def __init__(self, title: str, summary: List[str], actions: List[CalendarAction], moment: bool):
@@ -153,7 +156,7 @@ def process_image(image_bytes: bytes, debug: bool = False) -> Tuple[List[Calenda
     base64_image = base64.b64encode(image_bytes).decode("utf-8")
     prompt_text = (
         "Strictly return valid JSON. Extract **all information necessary for a calendar reminder**: "
-        "event title, start and end times, location (if mentioned), participants (if mentioned). "
+        "event title, start and end times."
         "Include at most one actionable event per image. If no event, return an empty 'events' list. "
         "Also provide 1-3 concise summary bullets of the important points discussed - any descriptions of data, images, or relevant content in the foreground of the picture. Don't feel any need to describe the scenery or setting or generate useless content, if there isn't anything valuable to describe, return an empty list under the summary section.\n\n"
         "Return JSON like this:\n"
@@ -202,7 +205,7 @@ def process_audio(audio_bytes: bytes, debug: bool = False) -> Tuple[List[Calenda
 
     prompt_text = (
         "You are a planning assistant. Extract **all information needed to create calendar reminders** from this transcript: "
-        "event title, start and end times, location (if mentioned), participants (if mentioned). "
+        "event title, start and end times."
         "Include at most one actionable event per transcript. If no event is found, return an empty 'events' list. "
         "Also provide 1-3 concise summary bullets of the important points discussed - any descriptions of data, images, or relevant content in the foreground of the picture. Don't feel any need to describe the scenery or setting or generate useless content, if there isn't anything valuable to describe, return an empty list under the summary section\n\n"
         "Transcript:\n" + transcript + "\n\n"
@@ -306,8 +309,13 @@ def process_event(images: List[bytes], audio: bytes, debug: bool = False) -> Eve
     # Keep only non-empty bullets and limit to 5
     synthesized_summary = [s.strip("-• ").strip() for s in synthesized_summary if s.strip()][:5]
 
-    # Generate title from the synthesized summary
-    title_prompt = "Generate a concise event title from the following summary bullets:\n" + "\n".join(synthesized_summary)
+    # Generate title from both actions and the synthesized summary
+    title_prompt = (
+        "Generate a concise, engaging event title based on both the following actions "
+        "and summary bullets. The title should capture the essence of the event, be short and clear.\n\n"
+        "Actions:\n" + "\n".join([str(action) for action in all_actions]) + "\n\n"
+        "Summary Bullets:\n" + "\n".join(synthesized_summary)
+    )
     title_resp = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": title_prompt}],
@@ -318,7 +326,7 @@ def process_event(images: List[bytes], audio: bytes, debug: bool = False) -> Eve
     return Event(title=title, summary=synthesized_summary, actions=all_actions, moment=(len(images) <= 15))
 
 # --- Tar.gz Processing ---
-def process_packet_tar_gz(tar_path: str, debug: bool = False) -> Event:
+def process_packet_tar_gz(tar_path: str, debug: bool = False, delete_at_end: bool = False) -> Event:
     temp_dir = tempfile.mkdtemp()
     with tarfile.open(tar_path, "r:gz") as tar:
         tar.extractall(path=temp_dir)
@@ -339,6 +347,9 @@ def process_packet_tar_gz(tar_path: str, debug: bool = False) -> Event:
         raise ValueError("No valid images found in the tar.gz packet.")
     if not audio:
         raise ValueError("No WAV audio file found in the tar.gz packet.")
+    
+    if delete_at_end:
+        os.remove(tar_path)
 
     return process_event(images, audio, debug=debug)
 
@@ -371,10 +382,12 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Process packet tar.gz into an Event.")
     parser.add_argument("tarfile", help="Path to the .tar.gz packet")
+    parser.add_argument("id", help="User ID")
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
+    parser.add_argument("--delete", action="store_true", help="Delete file at the end")
     args = parser.parse_args()
 
-    final_event = process_packet_tar_gz(args.tarfile, debug=args.debug)
+    final_event = process_packet_tar_gz(args.tarfile, debug=args.debug, delete_at_end=args.delete)
     print("\n✅ Final Event:\n", final_event)
 
-    post_event(final_event, "68d815d73a56a6fa6fccdf24", debug=args.debug)
+    post_event(final_event, args.id, debug=args.debug)
